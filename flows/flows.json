@@ -1,0 +1,270 @@
+[
+    {
+        "id": "8cdc69be1f8027b9",
+        "type": "tab",
+        "label": "Fluxo 3",
+        "disabled": false,
+        "info": "",
+        "env": []
+    },
+    {
+        "id": "52a93aa1cbb3ea95",
+        "type": "telegram receiver",
+        "z": "8cdc69be1f8027b9",
+        "name": "",
+        "bot": "55eaa69060d1bb3f",
+        "saveDataDir": "",
+        "filterCommands": false,
+        "hasinput": false,
+        "inputs": 0,
+        "handleallupdates": false,
+        "handleprocessupdates": false,
+        "x": 90,
+        "y": 140,
+        "wires": [
+            [
+                "1d4c731a0bbb2c60"
+            ],
+            []
+        ]
+    },
+    {
+        "id": "c46e1931c728957a",
+        "type": "watson-assistant-v2",
+        "z": "8cdc69be1f8027b9",
+        "name": "",
+        "service-endpoint": "https://api.us-east.assistant.watson.cloud.ibm.com/instances/1276d087-4c93-44ac-a6d2-5f6be6f401ce",
+        "assistant_id": "5d22ca79-3148-4f35-b079-cc535fcac568",
+        "debug": false,
+        "restart": false,
+        "return_context": true,
+        "alternate_intents": false,
+        "multisession": true,
+        "timeout": "",
+        "optout-learning": false,
+        "persist-session-id": false,
+        "x": 350,
+        "y": 140,
+        "wires": [
+            [
+                "b15143e07d5163bf",
+                "3515de507f1d8533"
+            ]
+        ]
+    },
+    {
+        "id": "3515de507f1d8533",
+        "type": "function",
+        "z": "8cdc69be1f8027b9",
+        "name": "Preparar API",
+        "func": "let origem = \"\";\n\nif (msg.texto_usuario) {\n    origem += msg.texto_usuario + \" \";\n}\n\norigem += JSON.stringify(msg);\n\nlet encontrado = origem.match(/\\d{2}\\.?\\d{3}\\.?\\d{3}\\/?\\d{4}-?\\d{2}/);\n\nif (!encontrado) {\n    node.error(\"CNPJ não encontrado. Envie um CNPJ com 14 números.\", msg);\n    return null;\n}\n\nlet cnpj_limpo = encontrado[0].replace(/[^0-9]/g, \"\");\n\nmsg.url = \"https://open.cnpja.com/office/\" + cnpj_limpo;\nmsg.cnpj_cliente = cnpj_limpo;\n\nreturn msg;\n",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 530,
+        "y": 140,
+        "wires": [
+            [
+                "ac6ff361d633b8a8"
+            ]
+        ]
+    },
+    {
+        "id": "ac6ff361d633b8a8",
+        "type": "http request",
+        "z": "8cdc69be1f8027b9",
+        "name": "",
+        "method": "GET",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "headers": [],
+        "x": 720,
+        "y": 140,
+        "wires": [
+            [
+                "6377bef622a2f134"
+            ]
+        ]
+    },
+    {
+        "id": "6377bef622a2f134",
+        "type": "function",
+        "z": "8cdc69be1f8027b9",
+        "name": "Mensagem + SQLite",
+        "func": "let dados = msg.payload;\n\nfunction valor(campo, padrao) {\n    if (campo === undefined || campo === null || campo === \"\") {\n        return padrao || \"Não informado\";\n    }\n    return String(campo);\n}\n\nfunction sql(campo) {\n    return valor(campo, \"\").replace(/'/g, \"''\");\n}\n\nfunction html(campo) {\n    return valor(campo, \"\")\n        .replace(/&/g, \"&amp;\")\n        .replace(/</g, \"&lt;\")\n        .replace(/>/g, \"&gt;\");\n}\n\nif (!dados || dados.error || dados.message) {\n    let textoErro = \"Não consegui consultar esse CNPJ na CNPJá.\\n\\nVerifique se ele tem 14 números e tente novamente.\\n\\nExemplo: 00000000000191\";\n\n    return [\n        {\n            payload: {\n                chatId: msg.chatId,\n                type: \"message\",\n                content: textoErro\n            }\n        },\n        null,\n        null\n    ];\n}\n\nlet cnpj = valor(dados.taxId || dados.cnpj || msg.cnpj_cliente);\nlet razao = valor(dados.company && dados.company.name);\nlet cidade = valor(dados.address && dados.address.city);\nlet estado = valor(dados.address && dados.address.state);\nlet atividade = valor(dados.mainActivity && dados.mainActivity.text);\nlet situacao = valor(dados.status && dados.status.text);\n\nlet situacaoNormalizada = situacao.toUpperCase();\n\nlet textoBot = \"\";\n\nif (situacaoNormalizada !== \"ATIVA\") {\n    textoBot =\n        \"Encontrei a empresa \" + html(razao) + \", mas o CNPJ \" + html(cnpj) +\n        \" está com situação cadastral: \" + html(situacao) + \".\\n\\n\" +\n        \"Deseja consultar outro CNPJ? Responda Sim ou Não.\";\n} else {\n    textoBot =\n        \"Olá equipe da <b>\" + html(razao) + \"</b>!\\n\\n\" +\n        \"Identifiquei o CNPJ \" + html(cnpj) + \".\\n\" +\n        \"Vi que vocês são de \" + html(cidade) + \"-\" + html(estado) +\n        \" e atuam com \" + html(atividade) + \".\\n\\n\" +\n        \"Sua cotação B2B personalizada foi liberada com sucesso.\\n\\n\" +\n        \"Deseja consultar outro CNPJ? Responda Sim ou Não.\";\n}\n\nlet msgTelegram = {\n    payload: {\n        chatId: msg.chatId,\n        type: \"message\",\n        content: textoBot,\n        options: {\n            parse_mode: \"HTML\"\n        }\n    }\n};\n\nlet msgEmpresa = {\n    topic:\n        \"INSERT OR REPLACE INTO Empresas_B2B \" +\n        \"(CNPJ, Razao_Social, Cidade, Estado, Atividade, Situacao) VALUES (\" +\n        \"'\" + sql(cnpj) + \"', \" +\n        \"'\" + sql(razao) + \"', \" +\n        \"'\" + sql(cidade) + \"', \" +\n        \"'\" + sql(estado) + \"', \" +\n        \"'\" + sql(atividade) + \"', \" +\n        \"'\" + sql(situacao) + \"'\" +\n        \");\"\n};\n\nlet msgHistorico = {\n    topic:\n        \"INSERT INTO Historico_Chat \" +\n        \"(ChatID, CNPJ, Resposta_Bot) VALUES (\" +\n        \"'\" + sql(msg.chatId) + \"', \" +\n        \"'\" + sql(cnpj) + \"', \" +\n        \"'\" + sql(textoBot.replace(/<[^>]*>/g, \"\")) + \"'\" +\n        \");\"\n};\n\nreturn [msgTelegram, msgEmpresa, msgHistorico];\n",
+        "outputs": 3,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 160,
+        "y": 320,
+        "wires": [
+            [
+                "17c467cea49847f5"
+            ],
+            [
+                "c60c0391bed330e1"
+            ],
+            [
+                "46d9b015b7d4c70e"
+            ]
+        ]
+    },
+    {
+        "id": "17c467cea49847f5",
+        "type": "telegram sender",
+        "z": "8cdc69be1f8027b9",
+        "name": "",
+        "bot": "55eaa69060d1bb3f",
+        "haserroroutput": false,
+        "outputs": 1,
+        "x": 470,
+        "y": 320,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "c60c0391bed330e1",
+        "type": "sqlite",
+        "z": "8cdc69be1f8027b9",
+        "mydb": "fe8e512fb10d9fc6",
+        "sqlquery": "msg.topic",
+        "sql": "",
+        "name": "empresa_cnpj",
+        "x": 480,
+        "y": 380,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "46d9b015b7d4c70e",
+        "type": "sqlite",
+        "z": "8cdc69be1f8027b9",
+        "mydb": "83d306411f62f49a",
+        "sqlquery": "msg.topic",
+        "sql": "",
+        "name": "historico_chat",
+        "x": 440,
+        "y": 460,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "b15143e07d5163bf",
+        "type": "debug",
+        "z": "8cdc69be1f8027b9",
+        "name": "debug 1",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "true",
+        "targetType": "full",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 540,
+        "y": 40,
+        "wires": []
+    },
+    {
+        "id": "1d4c731a0bbb2c60",
+        "type": "function",
+        "z": "8cdc69be1f8027b9",
+        "name": "inicial",
+        "func": "let texto = \"\";\n\nif (typeof msg.payload === \"string\") {\n    texto = msg.payload;\n} else {\n    texto = msg.payload.content || msg.payload.text || \"\";\n}\n\nlet chatId = msg.payload.chatId || msg.chatId;\n\ntexto = String(texto).trim();\nlet textoLower = texto.toLowerCase();\n\nmsg.chatId = chatId;\nmsg.texto_usuario = texto;\n\nlet temCnpj = /\\d{2}\\.?\\d{3}\\.?\\d{3}\\/?\\d{4}-?\\d{2}/.test(texto);\n\nif (\n    textoLower === \"/start\" ||\n    textoLower === \"start\" ||\n    textoLower === \"olá\" ||\n    textoLower === \"ola\" ||\n    textoLower === \"oi\" ||\n    textoLower === \"/consultar_cnpj\" ||\n    textoLower === \"consultar outro cnpj\" ||\n    textoLower === \"consultar outro\" ||\n    textoLower === \"sim\" ||\n    textoLower === \"/ajuda\"\n) {\n    return [\n        {\n            payload: {\n                chatId: chatId,\n                type: \"message\",\n                content: \"Olá! Eu consulto dados de empresas pelo CNPJ.\\n\\nEnvie um CNPJ com 14 números para eu preparar sua cotação B2B personalizada.\\n\\nExemplo: 00000000000191\"\n            }\n        },\n        null\n    ];\n}\n\nif (\n    textoLower === \"não\" ||\n    textoLower === \"nao\" ||\n    textoLower === \"sair\" ||\n    textoLower === \"encerrar\"\n) {\n    return [\n        {\n            payload: {\n                chatId: chatId,\n                type: \"message\",\n                content: \"Atendimento encerrado. Quando quiser consultar outro CNPJ, envie /start.\"\n            }\n        },\n        null\n    ];\n}\n\nif (!temCnpj) {\n    return [\n        {\n            payload: {\n                chatId: chatId,\n                type: \"message\",\n                content: \"Não encontrei um CNPJ válido na sua mensagem.\\n\\nEnvie um CNPJ com 14 números, com ou sem pontuação.\\n\\nExemplos:\\n00000000000191\\n00.000.000/0001-91\"\n            }\n        },\n        null\n    ];\n}\n\nmsg.payload = texto;\n\nreturn [null, msg];\n",
+        "outputs": 2,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 130,
+        "y": 40,
+        "wires": [
+            [
+                "1c04cd7cb7851831"
+            ],
+            [
+                "c46e1931c728957a"
+            ]
+        ]
+    },
+    {
+        "id": "1c04cd7cb7851831",
+        "type": "telegram sender",
+        "z": "8cdc69be1f8027b9",
+        "name": "",
+        "bot": "55eaa69060d1bb3f",
+        "haserroroutput": false,
+        "outputs": 1,
+        "x": 330,
+        "y": 20,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "55eaa69060d1bb3f",
+        "type": "telegram bot",
+        "botname": "@nodered_empresas_cnpj_bot",
+        "usernames": "",
+        "chatids": "",
+        "baseapiurl": "",
+        "testenvironment": false,
+        "updatemode": "polling",
+        "pollinterval": 300,
+        "usesocks": false,
+        "sockshost": "",
+        "socksprotocol": "socks5",
+        "socksport": 6667,
+        "socksusername": "anonymous",
+        "sockspassword": "",
+        "bothost": "",
+        "botpath": "",
+        "localbothost": "0.0.0.0",
+        "localbotport": 8443,
+        "publicbotport": 8443,
+        "privatekey": "",
+        "certificate": "",
+        "useselfsignedcertificate": false,
+        "sslterminated": false,
+        "verboselogging": false
+    },
+    {
+        "id": "fe8e512fb10d9fc6",
+        "type": "sqlitedb",
+        "db": "D:\\FIAP\\Artificial Intelligence & Chatbot\\chatbot aula11\\Empresas_B2B.db",
+        "mode": "RWC"
+    },
+    {
+        "id": "83d306411f62f49a",
+        "type": "sqlitedb",
+        "db": "D:\\FIAP\\Artificial Intelligence & Chatbot\\chatbot aula11\\historico_chat.db",
+        "mode": "RWC"
+    },
+    {
+        "id": "8866acdc1e8ca675",
+        "type": "global-config",
+        "env": [],
+        "modules": {
+            "node-red-contrib-telegrambot": "17.1.3",
+            "node-red-node-watson": "0.10.3",
+            "node-red-node-sqlite": "2.0.1"
+        }
+    }
+]
